@@ -1,0 +1,9 @@
+// Explicit fallback for memory-constrained builds. Normal release stays optimized.
+allprojects { p ->
+    p.plugins.withId('com.android.application') {
+        p.androidComponents.finalizeDsl { extension ->
+            extension.buildTypes.release.minifyEnabled = false
+            extension.buildTypes.release.shrinkResources = false
+        }
+    }
+}

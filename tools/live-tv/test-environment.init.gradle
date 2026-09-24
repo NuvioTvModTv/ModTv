@@ -1,0 +1,18 @@
+// Test-runner settings for disposable CI environments; does not change release signing.
+allprojects { p ->
+    p.plugins.withId('com.android.application') {
+        p.androidComponents.finalizeDsl { extension ->
+            extension.testBuildType = 'release'
+            extension.defaultConfig.testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+            extension.buildTypes.debug.signingConfig = extension.signingConfigs.debug
+            extension.buildTypes.debug.debuggable = true
+        }
+        p.tasks.withType(Test).configureEach {
+            systemProperty 'user.timezone', 'UTC'
+            doFirst {
+                def agent = classpath.files.find { it.name.startsWith('byte-buddy-agent-') && it.name.endsWith('.jar') }
+                if (agent != null) jvmArgs "-javaagent:${agent.absolutePath}"
+            }
+        }
+    }
+}

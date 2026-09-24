@@ -1,0 +1,3 @@
+<resources>
+    <string name="mod_update_install_error">Unable to open the installer. Check app installation permissions in system settings.</string>
+</resources>

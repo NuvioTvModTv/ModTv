@@ -17,20 +17,26 @@ jobs:
     if: github.repository == 'NuvioTvModTv/ModTv'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     env:
       GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.daemon=false"
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
+
       - name: Generate monotonic CI version
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release/prepare.py version
+
       - name: Restore signing keystore
         shell: bash
         env:
@@ -38,18 +44,44 @@ jobs:
         run: |
           set -euo pipefail
           : "${NUVIO_KEYSTORE_BASE64:?Missing signing keystore secret}"
+
           umask 077
-          printf '%s' "$NUVIO_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nuviotv-mod.jks"
+
+          printf '%s' "$NUVIO_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/nuviotv-mod.jks"
+
           test -s "$RUNNER_TEMP/nuviotv-mod.jks"
-      - name: Build Full Release for armeabi-v7a
+
+      - name: Build Full Release
         env:
           NUVIO_RELEASE_STORE_FILE: ${{ runner.temp }}/nuviotv-mod.jks
           NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_KEY_ALIAS }}
           NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_KEYSTORE_PASSWORD }}
           NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_KEY_PASSWORD }}
-        run: ./gradlew assembleFullRelease --no-parallel --max-workers=1
+        run: |
+          ./gradlew assembleFullRelease \
+            --no-parallel \
+            --max-workers=1
+
+      # Upload immediately after a successful Gradle build.
+      #
+      # This is intentionally BEFORE release validation so that,
+      # if validation/publication fails, the generated APKs remain
+      # available in the workflow run for diagnosis.
+      #
+      # GitHub Release publication below still happens ONLY after
+      # prepare.py validates the APKs successfully.
+      - name: Upload built APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuvioTV-Full-Release
+          path: app/build/outputs/apk/full/release/*.apk
+          if-no-files-found: error
+
       - name: Validate signed APKs and prepare manifest
         run: python3 tools/release/prepare.py assets
+
       - name: Publish complete public Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,16 +90,15 @@ jobs:
             release-assets/NuvioTV-armeabi-v7a.apk \
             release-assets/NuvioTV-universal.apk \
             release-assets/update.json \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
             --title "NuvioTV Mod $MOD_VERSION_NAME — Build $NUVIO_CI_VERSION_CODE" \
-            --notes-file release-assets/notes.md --generate-notes --latest
-      - name: Upload release APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: NuvioTV-Full-Release
-          path: '**/*.apk'
-          if-no-files-found: error
+            --notes-file release-assets/notes.md \
+            --generate-notes \
+            --latest
+
       - name: Remove temporary signing keystore
         if: always()
         shell: bash
-        run: rm -f -- "$RUNNER_TEMP/nuviotv-mod.jks"
+        run: |
+          rm -f -- "$RUNNER_TEMP/nuviotv-mod.jks"

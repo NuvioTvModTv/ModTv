@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
+import base64
 
 REPOSITORY = 'NuvioTvModTv/ModTv'
 BASE = f'https://github.com/{REPOSITORY}/releases'
@@ -89,17 +90,15 @@ def sha256(path):
 
 def signing_certificates(apksigner, apk):
     """
-    Verify the APK and return normalized SHA-256 fingerprints for all signers.
-
-    Certificate fingerprints are public information. No keystore, password
-    or private signing material is read here.
+    Verify the APK and return SHA-256 fingerprints of its signing
+    certificates without depending on apksigner's human-readable output.
     """
 
     result = subprocess.run(
         [
             str(apksigner),
             'verify',
-            '--print-certs',
+            '--print-certs-pem',
             str(apk)
         ],
         text=True,
@@ -109,58 +108,69 @@ def signing_certificates(apksigner, apk):
     )
 
     if result.returncode != 0:
+        detail = result.stderr.strip()
+        if detail:
+            print(f'apksigner verification error for {apk.name}: {detail}')
         raise SystemExit(
             f'APK signature verification failed: {apk.name}'
         )
 
-    fingerprints = []
+    # According to apksigner, --print-certs-pem emits the signing
+    # certificates as PEM. Parse the certificates themselves instead
+    # of relying on the formatting of "SHA-256 digest:" text.
+    output = result.stdout + '\n' + result.stderr
 
-    for line in result.stdout.splitlines():
-        match = re.match(
-            r'^\s*Signer #(\d+) certificate SHA-256 digest:\s*(.+?)\s*$',
-            line
+    pem_blocks = re.findall(
+        r'-----BEGIN CERTIFICATE-----\s*'
+        r'(.*?)'
+        r'\s*-----END CERTIFICATE-----',
+        output,
+        flags=re.DOTALL
+    )
+
+    if not pem_blocks:
+        # Safe diagnostic: do not expose keystore/password/private key.
+        print(
+            f'apksigner returned success for {apk.name}, '
+            'but no PEM signing certificate was found.'
         )
-
-        if not match:
-            continue
-
-        signer_number = int(match.group(1))
-
-        # Accept both forms:
-        #
-        # abcdef0123...
-        #
-        # and:
-        #
-        # AB:CD:EF:01:23...
-        #
-        fingerprint = re.sub(
-            r'[^0-9A-Fa-f]',
-            '',
-            match.group(2)
-        ).lower()
-
-        if len(fingerprint) != 64:
-            raise SystemExit(
-                f'Invalid SHA-256 certificate fingerprint in {apk.name}'
-            )
-
-        fingerprints.append(
-            (signer_number, fingerprint)
-        )
-
-    if not fingerprints:
         raise SystemExit(
             f'Could not read signing certificate from APK: {apk.name}'
         )
 
-    fingerprints.sort(key=lambda item: item[0])
+    fingerprints = []
 
-    return tuple(
-        fingerprint
-        for _, fingerprint in fingerprints
-    )
+    for pem_body in pem_blocks:
+        encoded = re.sub(r'\s+', '', pem_body)
 
+        try:
+            certificate_der = base64.b64decode(
+                encoded,
+                validate=True
+            )
+        except Exception:
+            raise SystemExit(
+                f'Invalid certificate PEM returned for APK: {apk.name}'
+            )
+
+        if not certificate_der:
+            raise SystemExit(
+                f'Empty signing certificate returned for APK: {apk.name}'
+            )
+
+        fingerprints.append(
+            hashlib.sha256(certificate_der).hexdigest()
+        )
+
+    # Remove accidental duplicates while keeping comparison deterministic.
+    fingerprints = tuple(sorted(set(fingerprints)))
+
+    if not fingerprints:
+        raise SystemExit(
+            f'Could not calculate signing certificate for APK: {apk.name}'
+        )
+
+    return fingerprints
 
 def assets():
     check_repository()

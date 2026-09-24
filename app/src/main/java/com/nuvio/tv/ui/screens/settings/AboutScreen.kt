@@ -132,11 +132,18 @@ fun AboutSettingsContent(
                             )
 
                             Text(
-                                text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NuvioTheme.colors.TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
+    				text = "NuvioTV 1.0.0",
+    				style = MaterialTheme.typography.labelSmall,
+    				color = NuvioTheme.colors.TextSecondary,
+    				textAlign = TextAlign.Center
+				)
+
+			Text(
+    				text = "ModTv ${BuildConfig.VERSION_NAME}",
+    				style = MaterialTheme.typography.labelSmall,
+    				color = NuvioTheme.colors.TextSecondary,
+    				textAlign = TextAlign.Center
+				)
 
                             Spacer(modifier = Modifier.height(NuvioTheme.spacing.xxs))
 

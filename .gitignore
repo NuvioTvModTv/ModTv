@@ -71,6 +71,10 @@ status-page/
 *.pfx
 *.key
 *.pem
+# Public CA trust anchors required by app/src/main/res/xml/network_security_config.xml.
+# Keep the global *.pem protection, but explicitly allow these two public certificates.
+!app/src/main/res/raw/isrgrootx1.pem
+!app/src/main/res/raw/isrg_root_x2.pem
 .env
 .env.*
 secrets.properties

@@ -81,6 +81,7 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
     val list=rememberLazyListState();val requesters=remember { mutableMapOf<String,FocusRequester>() }
     var full by rememberSaveable { mutableStateOf(false) };var dialog by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduleChannel by remember { mutableStateOf<LiveChannel?>(null) };var detail by remember { mutableStateOf<EpgProgram?>(null) }
+    var gridOpen by rememberSaveable { mutableStateOf(false) }
     var restore by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
     val latestState=rememberUpdatedState(s)
@@ -176,7 +177,7 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
                 Text(stringResource(R.string.live_channel_count,s.visible.size),color=LiveSecondary,style=MaterialTheme.typography.bodySmall)
                 LiveAction(stringResource(R.string.live_search_channels),Icons.Default.Search,
                     Modifier.width(164.dp).focusRequester(contentFocus).focusRequester(toolbar),pill=true) { query=s.search;dialog="search" }
-                LiveAction(stringResource(R.string.live_epg_grid),Icons.Default.GridView) { vm.edit { it.copy(view=if(it.view=="GRID") "LIST" else "GRID") } }
+                LiveAction(stringResource(R.string.live_epg_grid),Icons.Default.GridView) { gridOpen=true }
                 LiveAction(stringResource(R.string.live_addons),Icons.Default.Extension) { dialog="addons" }
             }
             LazyRow(contentPadding=PaddingValues(horizontal=4.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -187,10 +188,6 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
             if(s.loading) Text(stringResource(R.string.live_loading))
             if(s.catalogError) Text(stringResource(R.string.live_catalog_error),maxLines=2)
             if(s.epgLoading) Text(stringResource(R.string.live_epg_loading))
-            if(s.prefs.view=="GRID") Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                LiveButton("− 2h") { vm.offset(s.offset-120) };LiveButton(stringResource(R.string.live_now)) { vm.offset(0) };LiveButton("+ 2h") { vm.offset(s.offset+120) }
-                Text(time(s.now/1800000*1800000+s.offset*60000L,true))
-            }
             Row(Modifier.weight(1f).padding(top=14.dp),horizontalArrangement=Arrangement.spacedBy(18.dp)) {
                 LazyColumn(Modifier.weight(.52f),state=list,contentPadding=PaddingValues(4.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(s.visible.isEmpty() && !s.loading) item { Text(stringResource(R.string.live_empty)) }
@@ -234,18 +231,7 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
                                 }
                             }
                         }
-                        if(s.prefs.view=="GRID") {
-                            val from=s.now/1800000*1800000+s.offset*60000L
-                            val programs=epg.programs.filter { it.end>from && it.start<from+7200000 }
-                            LazyRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                                if(programs.isEmpty()) item { Text(stringResource(R.string.live_no_epg)) }
-                                items(programs,key={it.key}) { p ->
-                                    Card(onClick={ detail=p;dialog="detail" },modifier=Modifier.width(((minOf(p.end,from+7200000)-maxOf(p.start,from))/60000f*5).coerceIn(100f,600f).dp)) {
-                                        Column(Modifier.padding(10.dp)) { Text(time(p.start)+" – "+time(p.end),style=MaterialTheme.typography.bodySmall);Text(p.title,maxLines=2) }
-                                    }
-                                }
-                            }
-                        }
+
                     }
                 }
                 Column(
@@ -281,6 +267,12 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
             }
         } }
     }
+    if(gridOpen) EpgGridScreen(
+        channels=s.visible, guides=s.gridGuides, now=s.now, selectedKey=s.selectedKey,
+        onWindow=vm::gridWindow,
+        onClose={ gridOpen=false;restore++ },
+        onPlay={ channel -> vm.select(channel);if(s.playing?.key!=channel.key || s.playbackError) vm.play(channel,force=s.playbackError);gridOpen=false;restore++ }
+    )
     val selectedAddonIndex=s.addons.indexOfFirst { it.baseUrl in s.selectedAddons }.coerceAtLeast(0)
     if(dialog!=null) key(dialog) { LiveDialog(::close,addonMode=dialog=="addons",initialIndex=if(dialog=="addons") selectedAddonIndex else 0) { dialogFocus ->
         when(dialog) {

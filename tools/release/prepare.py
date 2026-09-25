@@ -213,7 +213,7 @@ def assets():
         'versionName': name,
         'title': 'Nova atualização disponível',
         'changelog':
-            f'NuvioTV Mod {name} — Build {code}. '
+            f'NuvioTV Mod {name}. '
             'Consulte as notas desta Release para as mudanças.',
         'releaseUrl':
             f'{BASE}/tag/{os.environ["MOD_RELEASE_TAG"]}'
@@ -367,7 +367,7 @@ def assets():
     (
         output / 'notes.md'
     ).write_text(
-        f'NuvioTV Mod {name} — Build {code}\n\n'
+        f'NuvioTV Mod {name}\n\n'
         'Base upstream: NuvioTV 1.0.0.\n'
     )
 

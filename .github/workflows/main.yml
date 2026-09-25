@@ -92,7 +92,7 @@ jobs:
             release-assets/update.json \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "NuvioTV Mod $MOD_VERSION_NAME — Build $NUVIO_CI_VERSION_CODE" \
+            --title "NuvioTV Mod $MOD_VERSION_NAME" \
             --notes-file release-assets/notes.md \
             --generate-notes \
             --latest

@@ -113,7 +113,7 @@ android {
                 "Invalid NUVIO_CI_VERSION_CODE"
             }
         } ?: 1062
-        versionName = "1.1"
+        versionName = "1.2"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")

@@ -57,7 +57,7 @@ class UpdateRepository @Inject constructor(client: OkHttpClient) {
                     require(hash.matches(Regex("[0-9a-f]{64}")))
                     val release=json.getString("releaseUrl")
                     require(release.startsWith("$RELEASE_BASE/tag/mod-v"))
-                    AppUpdate(tag="mod-v$version-b$code",title="NuvioTV Mod $version — Build $code",
+                    AppUpdate(tag="mod-v$version-b$code",title="NuvioTV Mod $version",
                         notes=json.optString("changelog").take(16000),releaseUrl=release,
                         assetName=name,assetUrl=url,versionCode=code.toInt(),sha256=hash,assetSizeBytes=null)
                 }

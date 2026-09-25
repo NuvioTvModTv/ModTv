@@ -31,6 +31,7 @@ class LiveTvViewModel @Inject constructor(@param:ApplicationContext private val 
         val playing: LiveChannel?=null,val streams: List<Stream> = emptyList(),val streamIndex: Int=0,
         val loading: Boolean=false,val epgLoading: Boolean=false,val buffering: Boolean=false,
         val catalogError: Boolean=false,val epgError: Boolean=false,val playbackError: Boolean=false,
+        val gridGuides: Map<String,ChannelGuide> = emptyMap(),
         val guides: Map<String,ChannelGuide> = emptyMap(),val schedule: ChannelGuide=ChannelGuide(),
         val now: Long=System.currentTimeMillis(),val offset: Int=0,
         val profileId: Int = -1,val needsSourceSelection: Boolean = true)
@@ -43,6 +44,12 @@ class LiveTvViewModel @Inject constructor(@param:ApplicationContext private val 
     private var channelsJob: Job?=null;private var epgJob: Job?=null;private var streamJob: Job?=null
     private var guideJob: Job?=null;private var ticker: Job?=null;private var retryJob: Job?=null
     private var matches=emptyMap<String,EpgMatch>();private var visibleKeys=emptyList<String>()
+    private var gridStart: Long?=null
+    private var gridKeys: List<String> = emptyList()
+    fun gridWindow(start: Long?, keys: List<String>) {
+        if(gridStart==start && gridKeys==keys) return
+        gridStart=start;gridKeys=keys.take(30);loadGuides()
+    }
     private var foreground=true
     private var scheduleChannel: LiveChannel?=null;private var retries=0;private var resume=false
     private var sourceJob: Job?=null
@@ -117,15 +124,19 @@ class LiveTvViewModel @Inject constructor(@param:ApplicationContext private val 
     fun schedule(c: LiveChannel?) { scheduleChannel=c;loadGuides() }
     private fun loadGuides() {
         guideJob?.cancel();guideJob=viewModelScope.launch {
-            val s=_state.value;val start=s.now/1800000*1800000+s.offset*60000L
+            val s=_state.value
             val guides=linkedMapOf<String,ChannelGuide>()
             for(key in (visibleKeys+listOfNotNull(s.playing?.key,s.selectedKey)).distinct()) {
                 val current=repo.guide(matches[key],s.now,s.now+96*3600000L,2)
-                val grid=if(s.prefs.view=="GRID") repo.guide(matches[key],start,start+7200000) else ChannelGuide()
-                guides[key]=ChannelGuide((current.programs+grid.programs).distinctBy { it.key }.sortedBy { it.start })
+                guides[key]=current
             }
             val schedule=scheduleChannel?.let { repo.guide(matches[it.key],s.now,s.now+96*3600000L,2000) } ?: ChannelGuide()
-            _state.update { it.copy(guides=guides,schedule=schedule) }
+            val window=gridStart
+            val grid=linkedMapOf<String,ChannelGuide>()
+            if(window!=null) for(key in gridKeys) {
+                grid[key]=repo.guide(matches[key],window-7200000L,window+14400000L)
+            }
+            _state.update { it.copy(guides=guides,schedule=schedule,gridGuides=grid) }
         }
     }
     fun active(on: Boolean) {

@@ -19,6 +19,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+<<<<<<< HEAD
+=======
+import androidx.compose.ui.input.key.nativeKeyEvent
+>>>>>>> 083859c0b9a87a9e62ab2dd45f2364b77e782669
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow

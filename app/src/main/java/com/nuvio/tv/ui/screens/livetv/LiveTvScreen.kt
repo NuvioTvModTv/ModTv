@@ -81,6 +81,7 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
     val list=rememberLazyListState();val requesters=remember { mutableMapOf<String,FocusRequester>() }
     var full by rememberSaveable { mutableStateOf(false) };var dialog by rememberSaveable { mutableStateOf<String?>(null) }
     var scheduleChannel by remember { mutableStateOf<LiveChannel?>(null) };var detail by remember { mutableStateOf<EpgProgram?>(null) }
+    var drawerOpen by remember { mutableStateOf(false) }
     var gridOpen by rememberSaveable { mutableStateOf(false) }
     var restore by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
@@ -90,6 +91,7 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
     LaunchedEffect(vm) { vm.entered() }
     var automaticSelector by remember { mutableStateOf(false) }
     var banner by remember { mutableStateOf(false) }
+    LaunchedEffect(full) { if(!full) drawerOpen=false }
     LaunchedEffect(full,s.playing?.key) {
         banner=full
         if(full) { delay(3000);banner=false }
@@ -135,15 +137,25 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
     LaunchedEffect(s.selectedAddons) {
         if(full && s.playing==null) { full=false;restore++ }
     }
-    BackHandler(full || dialog!=null) { if(dialog!=null) close() else { full=false;restore++ } }
+    fun closeDrawer() { drawerOpen=false;restore++ }
+    BackHandler(full || dialog!=null) {
+        if(drawerOpen) closeDrawer() else if(dialog!=null) close() else { full=false;restore++ }
+    }
     Box(Modifier.fillMaxSize().background(LiveBackground).onPreviewKeyEvent { event ->
-        if(dialog!=null) false
+        if(dialog!=null || drawerOpen) false
         else if(full && event.nativeKeyEvent.keyCode in listOf(android.view.KeyEvent.KEYCODE_DPAD_CENTER,android.view.KeyEvent.KEYCODE_ENTER,android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) {
             if(event.type==KeyEventType.KeyUp) vm.pauseToggle()
             true
-        } else if(full && event.nativeKeyEvent.keyCode in listOf(android.view.KeyEvent.KEYCODE_DPAD_LEFT,android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
-            if(event.type==KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount==0)
-                vm.adjacent(if(event.nativeKeyEvent.keyCode==android.view.KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1)
+        } else if(full && event.nativeKeyEvent.keyCode in listOf(android.view.KeyEvent.KEYCODE_DPAD_UP,android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT,android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if(event.type==KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount==0) {
+                when(event.nativeKeyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_UP -> vm.adjacent(-1)
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> vm.adjacent(1)
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { drawerOpen=true;banner=false }
+                    // RIGHT is deliberately consumed without changing the channel.
+                }
+            }
             true
         } else if(event.type!=KeyEventType.KeyDown) false else when(event.nativeKeyEvent.keyCode) {
             android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { vm.pauseToggle();true }
@@ -169,6 +181,14 @@ fun LiveTvScreen(onManageAddons: ()->Unit,vm: LiveTvViewModel=hiltViewModel()) {
                     }
                 }
             }
+            if(drawerOpen) LiveTvChannelDrawer(
+                channels=s.visible,playingKey=s.playing?.key,guides=s.guides,now=s.now,
+                modifier=Modifier.align(Alignment.CenterStart),onClose=::closeDrawer,
+                onPlay={ channel ->
+                    if(channel.key!=s.playing?.key || s.playbackError) vm.play(channel,force=s.playbackError)
+                    closeDrawer()
+                }
+            )
         } else browserState.SaveableStateProvider("browser") { Column(Modifier.fillMaxSize().padding(horizontal=22.dp,vertical=20.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom=16.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {
                 Text(stringResource(R.string.live_channels_title),Modifier.weight(1f),color=Color.White,

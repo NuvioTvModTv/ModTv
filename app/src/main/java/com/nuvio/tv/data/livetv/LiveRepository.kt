@@ -124,7 +124,9 @@ class LiveRepository @Inject constructor(@ApplicationContext context: Context,cl
                 Log.w("LiveTV", "stage=stream_resolution exception=${e.javaClass.simpleName}")
             }
         } else Log.d("LiveTV", "stage=stream_resolution resource_not_supported")
+        val returnedCount=list.size
         list=list.mapNotNull { stream -> playableUrl(stream)?.let { stream.copy(url=it) } }
+        if(returnedCount>list.size) Log.d("LiveTV","stage=stream_url rejected=${returnedCount-list.size} returned=$returnedCount")
         if(list.isEmpty() && addon.resources.any { it.name=="meta" && (it.types.isEmpty() || channel.type in it.types) }) {
             try {
                 val response=api.getMeta(resourceUrl(addon.baseUrl,"meta",channel.type,channel.id))
@@ -214,9 +216,33 @@ class LiveRepository @Inject constructor(@ApplicationContext context: Context,cl
     }
     suspend fun guide(match: EpgMatch?,from: Long,to: Long,limit: Int=200)=withContext(Dispatchers.IO) { if(match==null) ChannelGuide() else db.window(match,from,to,limit) }
     companion object {
-        fun playableUrl(s: Stream)=(listOfNotNull(s.url,s.externalUrl)+s.sources.orEmpty()).firstOrNull {
-            runCatching { java.net.URI(it.trim()).scheme?.lowercase() }.getOrNull() in setOf("http","https","rtsp","rtsps","rtmp","rtmps","udp","rtp","mms","mmsh")
-        }?.trim()
+        fun playableUrl(s: Stream): String? =
+            (listOfNotNull(s.getStreamUrl(),s.url,s.externalUrl)+s.sources.orEmpty())
+                .firstNotNullOfOrNull(::cleanPlayableUrl)
+
+        // Unwrap a media address only. Never launch an intent/package or execute its extras.
+        internal fun cleanPlayableUrl(raw: String): String? {
+            var url=raw.trim()
+            val wrappers=listOf("vlc://","mxplayer://","wuffy://","nplayer://","iplayer://")
+            repeat(3) {
+                if(url.startsWith("intent:",ignoreCase=true)) {
+                    val body=url.substring(7)
+                    val target=body.substringBefore("#Intent;")
+                    if(target.startsWith("//")) {
+                        val scheme=body.substringAfter("#Intent;","").split(';')
+                            .firstOrNull { it.startsWith("scheme=",ignoreCase=true) }?.substringAfter('=')
+                        if(!scheme.equals("http",true) && !scheme.equals("https",true)) return null
+                        url="$scheme:$target"
+                    } else url=target
+                } else {
+                    val prefix=wrappers.firstOrNull { url.startsWith(it,ignoreCase=true) }
+                    if(prefix!=null) url=url.substring(prefix.length)
+                }
+            }
+            val uri=runCatching { java.net.URI(url) }.getOrNull() ?: return null
+            if(uri.scheme?.lowercase(java.util.Locale.ROOT) !in setOf("http","https","rtsp","rtsps","rtmp","rtmps","udp","rtp","mms","mmsh")) return null
+            return url.takeIf { !uri.rawAuthority.isNullOrBlank() }
+        }
         fun resourceUrl(base: String,resource: String,type: String,id: String,extra: String?=null): String {
             val path=base.substringBefore('?').trimEnd('/').removeSuffix("/manifest.json")
             val query=base.substringAfter('?',"").takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()

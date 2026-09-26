@@ -58,16 +58,25 @@ internal fun EpgGridScreen(
     onWindow: (Long?,List<String>)->Unit, onClose: ()->Unit, onPlay: (LiveChannel)->Unit
 ) {
     val origin=rememberSaveable { now/EpgHalfHour*EpgHalfHour }
-    var start by rememberSaveable { mutableLongStateOf(origin) }
+    var start by rememberSaveable { mutableLongStateOf(origin-EpgHalfHour) }
     var cursor by rememberSaveable { mutableLongStateOf(now) }
     var row by rememberSaveable { mutableIntStateOf(channels.indexOfFirst { it.key==selectedKey }.coerceAtLeast(0)) }
+    var alignRow by remember { mutableStateOf(true) }
     val list=rememberLazyListState(initialFirstVisibleItemIndex=row)
     val focus=remember { FocusRequester() };val back=remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
     val channel=channels.getOrNull(row)
-    val program=nearestProgram(guides[channel?.key]?.programs.orEmpty(),cursor)
+    val programs=guides[channel?.key]?.programs.orEmpty()
+    val program=remember(programs,cursor) { nearestProgram(programs,cursor) }
     val format=remember { SimpleDateFormat("HH:mm",Locale.getDefault()) }
     val dateFormat=remember { SimpleDateFormat("EEE dd/MM",Locale.getDefault()) }
+    LaunchedEffect(row,program?.key,alignRow) {
+        if(alignRow) program?.let {
+            if(it.end<=start) start=(it.end-1)/EpgHalfHour*EpgHalfHour-EpgWindow+EpgHalfHour
+            else if(it.start>=start+EpgWindow) start=it.start/EpgHalfHour*EpgHalfHour
+            alignRow=false
+        }
+    }
     val latestWindow by rememberUpdatedState(onWindow)
     DisposableEffect(Unit) { onDispose { latestWindow(null,emptyList()) } }
     LaunchedEffect(start,list) {
@@ -91,18 +100,26 @@ internal fun EpgGridScreen(
                     } else false
                 }) { Text(stringResource(R.string.epg_back_channels)) }
             }
-            Row(Modifier.fillMaxWidth().height(106.dp).padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically,
+            Row(Modifier.fillMaxWidth().height(116.dp).padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                 AsyncImage(model=channel?.logo,contentDescription=null,contentScale=ContentScale.Fit,
                     modifier=Modifier.size(58.dp).background(Color(0xFF20242A),RoundedCornerShape(8.dp)).padding(6.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
                     Text(channel?.name.orEmpty(),color=Color.White,fontSize=17.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(program?.let { "${format.format(Date(it.start))} – ${format.format(Date(it.end))}  ${it.title}" }
-                        ?:stringResource(R.string.live_no_epg),color=EpgBlue,fontSize=16.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(program?.description.orEmpty(),color=Color(0xFFB0B8C3),fontSize=13.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        if(program?.isLive(now)==true) Text(stringResource(R.string.live_on_air),
+                            Modifier.background(Color(0xFFD92329),RoundedCornerShape(3.dp)).padding(horizontal=5.dp,vertical=2.dp),color=Color.White,fontSize=10.sp)
+                        Text(program?.title ?: stringResource(R.string.live_no_epg),Modifier.weight(1f),color=EpgBlue,fontSize=17.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        program?.let { Text("${format.format(Date(it.start))} – ${format.format(Date(it.end))}",color=Color(0xFFB0B8C3),fontSize=13.sp) }
+                    }
+                    Text(program?.description?.takeIf { it.isNotBlank() } ?: channel?.description.orEmpty(),color=Color(0xFFB0B8C3),fontSize=13.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
                 }
             }
-            Column(Modifier.weight(1f).fillMaxWidth().focusRequester(focus).onFocusChanged { focused=it.isFocused }
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val channelWidth=180.dp
+            val axis=remember(start,maxWidth) { EpgAxis(start,(maxWidth-channelWidth).value.coerceAtLeast(1f)) }
+            val ticks=remember(start) { List(4) { start+it*EpgHalfHour } }
+            Column(Modifier.fillMaxSize().focusRequester(focus).onFocusChanged { focused=it.isFocused }
                 .onPreviewKeyEvent { event ->
                     val key=event.nativeKeyEvent.keyCode
                     if(key !in listOf(KeyEvent.KEYCODE_DPAD_UP,KeyEvent.KEYCODE_DPAD_DOWN,KeyEvent.KEYCODE_DPAD_LEFT,
@@ -110,9 +127,10 @@ internal fun EpgGridScreen(
                     else {
                         if(event.nativeKeyEvent.action==KeyEvent.ACTION_DOWN && event.nativeKeyEvent.repeatCount==0) {
                             when(key) {
-                                KeyEvent.KEYCODE_DPAD_UP -> if(row>0) row-- else back.requestFocus()
-                                KeyEvent.KEYCODE_DPAD_DOWN -> if(row<channels.lastIndex) row++
+                                KeyEvent.KEYCODE_DPAD_UP -> if(row>0) { alignRow=true;row-- } else back.requestFocus()
+                                KeyEvent.KEYCODE_DPAD_DOWN -> if(row<channels.lastIndex) { alignRow=true;row++ }
                                 KeyEvent.KEYCODE_DPAD_LEFT,KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    alignRow=false
                                     val programs=guides[channel?.key]?.programs.orEmpty()
                                     val next=if(key==KeyEvent.KEYCODE_DPAD_RIGHT) {
                                         val following=programs.firstOrNull { it.start >= (program?.end ?: cursor+1) }
@@ -132,11 +150,11 @@ internal fun EpgGridScreen(
                     }
                 }.focusable()) {
                 Row(Modifier.fillMaxWidth().height(34.dp)) {
-                    Text(stringResource(R.string.live_channels_title),Modifier.width(190.dp).padding(6.dp),color=Color.White,fontSize=13.sp,maxLines=1)
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(4.dp))) {
-                        val axis=EpgAxis(start,maxWidth.value)
-                        repeat(4) { tick -> Text(format.format(Date(start+tick*EpgHalfHour)),
-                            Modifier.offset(x=axis.offset(start+tick*EpgHalfHour)).padding(start=5.dp),color=Color(0xFFB0B8C3),fontSize=14.sp) }
+                    Text(stringResource(R.string.live_channel_count,channels.size),Modifier.width(channelWidth).padding(6.dp),color=Color.White,fontSize=13.sp,maxLines=1)
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(Color(0xFF1C2026))) {
+                        ticks.forEach { tick -> Text(format.format(Date(tick)),
+                            Modifier.offset(x=axis.offset(tick)).padding(start=5.dp,top=6.dp),color=Color(0xFFB0B8C3),fontSize=14.sp) }
+                        if(now in start until start+EpgWindow) Box(Modifier.offset(x=axis.offset(now)).width(2.dp).fillMaxHeight().background(Color(0xFFEA443A)))
                     }
                 }
                 LazyColumn(Modifier.fillMaxSize(),state=list,verticalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -144,14 +162,13 @@ internal fun EpgGridScreen(
                         val programs=guides[c.key]?.programs.orEmpty()
                         val visible=remember(programs,start) { programs.filter { it.end>start && it.start<start+EpgWindow && it.end>it.start } }
                         Row(Modifier.fillMaxWidth().height(68.dp)) {
-                            Row(Modifier.width(190.dp).fillMaxHeight().background(if(index==row && focused) Color(0xFF102F49) else Color(0xFF15171B))
+                            Row(Modifier.width(channelWidth).fillMaxHeight().border(if(index==row && focused) 2.dp else 0.dp,if(index==row && focused) EpgBlue else Color.Transparent).background(if(index==row && focused) Color(0xFF102F49) else Color(0xFF15171B))
                                 .padding(8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 AsyncImage(model=c.logo,contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(38.dp))
                                 Text(c.name,color=Color.White,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
                             }
-                            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(Color(0xFF15171B))) {
-                                val axis=EpgAxis(start,maxWidth.value)
-                                repeat(4) { tick -> Box(Modifier.offset(x=axis.offset(start+tick*EpgHalfHour)).width(1.dp).fillMaxHeight().background(Color(0xFF30343B))) }
+                            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(Color(0xFF15171B))) {
+                                ticks.forEach { tick -> Box(Modifier.offset(x=axis.offset(tick)).width(1.dp).fillMaxHeight().background(Color(0xFF30343B))) }
                                 if(visible.isEmpty()) Text(stringResource(R.string.live_no_epg),Modifier.padding(12.dp),color=Color(0xFFB0B8C3),fontSize=13.sp)
                                 visible.forEach { p -> key(p.key) {
                                     val left=maxOf(p.start,start);val right=minOf(p.end,start+EpgWindow)
@@ -161,6 +178,9 @@ internal fun EpgGridScreen(
                                         .border(if(selected) 2.dp else 1.dp,if(selected) EpgBlue else Color(0xFF30343B),RoundedCornerShape(6.dp)).padding(7.dp)) {
                                         Text("${format.format(Date(p.start))} – ${format.format(Date(p.end))}",color=if(p.isLive(now)) EpgBlue else Color(0xFFB0B8C3),fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                                         Text(p.title,color=Color.White,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                        if(p.isLive(now)) Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF30343B))) {
+                                            Box(Modifier.fillMaxWidth(p.progress(now)).fillMaxHeight().background(EpgBlue))
+                                        }
                                     }
                                 } }
                                 if(visible.isEmpty() && focused && index==row) Box(Modifier.fillMaxSize().border(2.dp,EpgBlue,RoundedCornerShape(6.dp)))
@@ -169,6 +189,7 @@ internal fun EpgGridScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
